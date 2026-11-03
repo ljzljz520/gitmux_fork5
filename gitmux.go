@@ -10,6 +10,7 @@ import (
 	"github.com/arl/gitstatus"
 	"gopkg.in/yaml.v3"
 
+	"github.com/arl/gitmux/collect"
 	"github.com/arl/gitmux/json"
 	"github.com/arl/gitmux/tmux"
 )
@@ -117,8 +118,12 @@ func main() {
 		}()
 	}
 
-	// Retrieve git status.
-	st, err := gitstatus.NewWithContext(ctx)
+	// Retrieve git status. Collection validates worktree identity and
+	// metadata generation around each round and re-samples bounded times on
+	// branch switches; if the tree cannot be observed in a single stable
+	// state, no status is produced and check() keeps the silent/debug
+	// behavior.
+	st, err := collect.NewStatus(ctx, collect.Options{})
 	check(err, dbg)
 
 	// Interface that writes a particular representation of a gitstatus.Status

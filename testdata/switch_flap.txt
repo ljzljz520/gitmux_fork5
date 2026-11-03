@@ -1,0 +1,59 @@
+# The worktree keeps switching around every status collection and never
+# settles. gitmux must exhaust its bounded re-sampling attempts, output no
+# (mixed) summary, stay silent without -dbg and print the error with -dbg.
+
+exec /usr/bin/git init -q
+exec /usr/bin/git checkout -q -b main
+exec /usr/bin/git config user.email tester@example.com
+exec /usr/bin/git config user.name Tester
+exec /usr/bin/git add f
+exec /usr/bin/git commit -q -m one
+exec /usr/bin/git branch zzother
+exec /usr/bin/git add f2
+exec /usr/bin/git commit -q -m two
+exec /usr/bin/git checkout -q zzother
+exec /usr/bin/git add g
+exec /usr/bin/git commit -q -m three
+exec /usr/bin/git checkout -q main
+
+cd $GITMUX_DIR
+go build -o $WORK/gitmux .
+cd $WORK
+
+chmod 0755 bin/git
+env PATH=$WORK/bin:$PATH
+
+# -dbg: non-zero exit, nothing on stdout (no mixed summary), error on stderr.
+! exec ./gitmux -dbg
+cp stdout fail.out
+cp stderr fail.err
+! exec /usr/bin/grep -q . fail.out
+exec /usr/bin/grep -qi unstable fail.err
+
+# Silent mode: non-zero exit with empty stdout AND empty stderr.
+! exec ./gitmux
+cp stdout silent.out
+cp stderr silent.err
+! exec /usr/bin/grep -q . silent.out
+! exec /usr/bin/grep -q . silent.err
+
+-- bin/git --
+#!/bin/sh
+# Flaps main -> zzother around every 'git status' invocation, so each
+# collection round straddles a switch and generations never settle.
+if [ "$1" = "status" ]; then
+	/usr/bin/git checkout -q main
+	/usr/bin/git "$@" > .gmsw_out
+	rc=$?
+	/usr/bin/git checkout -q zzother
+	/bin/cat .gmsw_out
+	exit $rc
+fi
+exec /usr/bin/git "$@"
+
+-- f --
+one
+-- f2 --
+two
+-- g --
+three

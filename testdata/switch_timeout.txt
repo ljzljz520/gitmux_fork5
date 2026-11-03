@@ -1,0 +1,45 @@
+# Collection hangs in the worktree probe: -timeout must abort the run, emit
+# no summary and preserve the silent/debug behavior.
+
+exec /usr/bin/git init -q
+exec /usr/bin/git checkout -q -b main
+exec /usr/bin/git config user.email tester@example.com
+exec /usr/bin/git config user.name Tester
+exec /usr/bin/git add f
+exec /usr/bin/git commit -q -m one
+
+cd $GITMUX_DIR
+go build -o $WORK/gitmux .
+cd $WORK
+
+chmod 0755 bin/git
+env PATH=$WORK/bin:$PATH
+
+# Debug mode: the timeout aborts collection, nothing is written to stdout and
+# the error is reported on stderr.
+! exec ./gitmux -dbg -timeout 200ms
+cp stdout fail.out
+cp stderr fail.err
+! exec /usr/bin/grep -q . fail.out
+exec /usr/bin/grep -q . fail.err
+
+# Silent mode: aborted as well with no output at all.
+! exec ./gitmux -timeout 200ms
+cp stdout silent.out
+cp stderr silent.err
+! exec /usr/bin/grep -q . silent.out
+! exec /usr/bin/grep -q . silent.err
+
+-- bin/git --
+#!/bin/sh
+# Block indefinitely on the identity/generation probe; everything else is
+# delegated to real git.
+case "$1 $2" in
+"rev-parse --absolute-git-dir")
+	exec /bin/sleep 30
+	;;
+esac
+exec /usr/bin/git "$@"
+
+-- f --
+one

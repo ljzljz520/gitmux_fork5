@@ -1,0 +1,72 @@
+# A branch switch is forced to straddle status collection (branch name
+# sampled on 'main', HEAD sampled after a checkout to 'zzother'). gitmux must
+# discard the mixed round, re-sample on the settled branch and emit consistent
+# output through both output ends: the -dbg JSON and the tmux line.
+
+# Repository with two diverged branches, main checked out initially.
+exec /usr/bin/git init -q
+exec /usr/bin/git checkout -q -b main
+exec /usr/bin/git config user.email tester@example.com
+exec /usr/bin/git config user.name Tester
+exec /usr/bin/git add f
+exec /usr/bin/git commit -q -m one
+exec /usr/bin/git branch zzother
+exec /usr/bin/git add f2
+exec /usr/bin/git commit -q -m two
+exec /usr/bin/git checkout -q zzother
+exec /usr/bin/git add g
+exec /usr/bin/git commit -q -m three
+exec /usr/bin/git checkout -q main
+
+# Build gitmux before shadowing git on PATH.
+cd $GITMUX_DIR
+go build -o $WORK/gitmux .
+cd $WORK
+
+chmod 0755 bin/git
+env PATH=$WORK/bin:$PATH
+
+# --- JSON (-dbg) output end ---
+exec ./gitmux -dbg
+cp stdout dbg.out
+# Branch name and HEAD both come from the settled zzother generation.
+exec /usr/bin/grep -q '"LocalBranch": "zzother"' dbg.out
+! exec /usr/bin/grep -q '"LocalBranch": "main"' dbg.out
+exec /usr/bin/git rev-parse --short zzother
+cp stdout zsha
+exec /usr/bin/grep -qFf zsha dbg.out
+exec /usr/bin/git rev-parse --short main
+cp stdout msha
+! exec /usr/bin/grep -qFf msha dbg.out
+
+# Reset the shim and worktree, run the tmux output end.
+exec /bin/rm -f .gmsw_done .gmsw_out
+exec /usr/bin/git checkout -q main
+
+# --- tmux output end ---
+exec ./gitmux
+cp stdout tmux.out
+exec /usr/bin/grep -q zzother tmux.out
+! exec /usr/bin/grep -q main tmux.out
+
+-- bin/git --
+#!/bin/sh
+# Serves the very first 'git status' while on main, then checks zzother out
+# before the remaining commands run, deterministically straddling collection.
+# All later invocations observe the settled state.
+if [ "$1" = "status" ] && [ ! -r .gmsw_done ]; then
+	/usr/bin/git "$@" > .gmsw_out
+	rc=$?
+	/usr/bin/git checkout -q zzother
+	echo 1 > .gmsw_done
+	/bin/cat .gmsw_out
+	exit $rc
+fi
+exec /usr/bin/git "$@"
+
+-- f --
+one
+-- f2 --
+two
+-- g --
+three
